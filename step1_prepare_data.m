@@ -49,6 +49,14 @@ for v = catVars
     test.(v)  = categorical(test.(v),  allCats);
 end
 
+%% Building history (lag) features
+% Rows have no building id, but the same building reappears across years with
+% identical static features. Its Site EUI in earlier years is the strongest
+% predictor we have (the core of the WiDS 2022 winning approach).
+[train, test] = addHistoryFeatures(train, test);
+fprintf("Rows with building history: %.1f%% of train, %.1f%% of test\n", ...
+    100 * mean(train.lag_count > 0), 100 * mean(test.lag_count > 0))
+
 %% Choose predictors
 % id identifies rows only, and Year_Factor is used for splitting: the test year (7)
 % is outside the training range, so the model should not lean on it.
@@ -90,4 +98,44 @@ function T = cleanFeatures(T)
     T.winter_avg_temp = mean([T.december_avg_temp, T.january_avg_temp, T.february_avg_temp], 2);
     T.summer_avg_temp = mean([T.june_avg_temp, T.july_avg_temp, T.august_avg_temp], 2);
     T.annual_temp_range = T.summer_avg_temp - T.winter_avg_temp;
+end
+
+function [train, test] = addHistoryFeatures(train, test)
+    % Identify each building by its static features, then, for every row, summarise
+    % that building's Site EUI in strictly earlier years (so nothing leaks from the
+    % row's own year or the future, for train, validation and test alike).
+    keyVars = ["State_Factor", "building_class", "facility_type", "floor_area", "year_built"];
+    both = [train(:, [keyVars, "Year_Factor"]); test(:, [keyVars, "Year_Factor"])];
+    yearBuilt = fillmissing(both.year_built, "constant", -1);  % keep unknown years as one key value
+    bld = findgroups(both.State_Factor, both.building_class, both.facility_type, ...
+        both.floor_area, yearBuilt);
+    yr = both.Year_Factor;
+    eui = [train.site_eui; nan(height(test), 1)];
+
+    % One Site EUI per building and year (a few keys cover several buildings)
+    known = ~isnan(eui);
+    byYear = groupsummary(table(bld(known), yr(known), eui(known), ...
+        'VariableNames', ["bld", "yr", "eui"]), ["bld", "yr"], "mean", "eui");
+    byYear = sortrows(byYear, ["bld", "yr"]);
+
+    n = height(both);
+    lagLast = nan(n, 1);  lagMean = nan(n, 1);  lagCount = zeros(n, 1);  lagGap = nan(n, 1);
+    for y = unique(yr)'
+        past = byYear(byYear.yr < y, :);
+        if isempty(past), continue; end
+        [pastBld, lastIdx] = unique(past.bld, "last");
+        stats = groupsummary(past, "bld", "mean", "mean_eui");
+        [isKnown, loc] = ismember(bld, pastBld);
+        rows = yr == y & isKnown;
+        lagLast(rows)  = past.mean_eui(lastIdx(loc(rows)));
+        lagGap(rows)   = y - past.yr(lastIdx(loc(rows)));
+        lagMean(rows)  = stats.mean_mean_eui(loc(rows));
+        lagCount(rows) = stats.GroupCount(loc(rows));
+    end
+
+    isTrain = (1:n)' <= height(train);
+    train.lag_last = lagLast(isTrain);   test.lag_last = lagLast(~isTrain);
+    train.lag_mean = lagMean(isTrain);   test.lag_mean = lagMean(~isTrain);
+    train.lag_count = lagCount(isTrain); test.lag_count = lagCount(~isTrain);
+    train.lag_gap = lagGap(isTrain);     test.lag_gap = lagGap(~isTrain);
 end
