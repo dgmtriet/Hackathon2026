@@ -1,5 +1,5 @@
 %% Step 2: Train and compare models
-% Needs preparedData.mat from step1_prepare_data.m, plus trainForest.m, trainBoost.m and predictBoost.m.
+% Needs preparedData.mat from step1_prepare_data.m, plus trainForest.m, trainBoost.m, predictBoost.m and fillSentinel.m.
 % Trains on years 1-5, scores on year 6, and saves the winning settings to
 % bestModelConfig.mat for step 3.
 
@@ -34,6 +34,9 @@ yhatLin = predict(linMdl, XvalLin);
 yhatLin(isnan(yhatLin)) = mean(ytr);  % facility types never seen in years 1-5
 results = addResult(results, "Linear regression", yhatLin);
 
+% Tree models get an out-of-range value for missing numbers instead (see fillSentinel.m)
+Xtr = fillSentinel(Xtr);  Xval = fillSentinel(Xval);
+
 %% Random forest (bagged trees, each split sees a third of the predictors)
 rfCfg = struct("NumTrees", 100, "MinLeafSize", 5, ...
     "NumVariablesToSample", round(numel(predictorNames) / 3));
@@ -56,7 +59,8 @@ disp(results)
 
 %% Tune the boosted model with a small grid
 % A grid keeps run time predictable; each fit takes about a minute.
-[lr, splits, leaf] = ndgrid([0.05 0.1], [31 127], [10 50]);
+% Earlier runs favoured deep trees and a learning rate of 0.1, so the grid stays there.
+[lr, splits, leaf] = ndgrid(0.1, [127 255], [10 30]);
 grid = table(lr(:), splits(:), leaf(:), ...
     'VariableNames', ["LearnRate", "MaxNumSplits", "MinLeafSize"]);
 grid.RMSE_TestLike = nan(height(grid), 1);

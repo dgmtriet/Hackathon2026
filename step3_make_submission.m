@@ -11,7 +11,8 @@ load("bestModelConfig.mat")
 % Year 6 was held out for validation; now it is the most recent and most
 % useful data we have, so the final model learns from it too.
 Xall = train(:, predictorNames);  yall = train.site_eui;
-Xtest = test(:, predictorNames);
+Xall = fillSentinel(Xall);
+Xtest = fillSentinel(test(:, predictorNames));
 fprintf("Retraining: %s\n", finalChoice)
 switch finalChoice
     case "Random forest"

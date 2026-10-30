@@ -1,7 +1,9 @@
 function mdl = trainBoost(X, y, cfg)
 % Fit a gradient-boosted tree ensemble with the settings in cfg.
 % cfg fields: LearnRate, MaxNumSplits, MinLeafSize, NumCycles, LogTarget.
-    t = templateTree("MaxNumSplits", cfg.MaxNumSplits, "MinLeafSize", cfg.MinLeafSize);
+    % Each split considers 70% of the predictors, which decorrelates the trees a little
+    t = templateTree("MaxNumSplits", cfg.MaxNumSplits, "MinLeafSize", cfg.MinLeafSize, ...
+        "NumVariablesToSample", round(0.7 * width(X)));
     if cfg.LogTarget
         y = log(y);
     end
